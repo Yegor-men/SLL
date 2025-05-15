@@ -9,6 +9,7 @@ import snntorch as snn
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 
+
 class SNN(nn.Module):
     def __init__(
         self,
@@ -21,7 +22,9 @@ class SNN(nn.Module):
         reset_mechanism: str = "subtract",
     ) -> None:
         super().__init__()
-        
+
+        self.num_outputs = num_outputs
+
         self.lif_1 = snn.Synaptic(
             alpha=alpha, beta=beta, threshold=threshold, reset_mechanism=reset_mechanism
         )
@@ -35,7 +38,11 @@ class SNN(nn.Module):
             in_features=num_hidden, out_features=num_outputs, bias=False
         )
         self.lif_3 = snn.Synaptic(
-            alpha=alpha, beta=beta, threshold=threshold, reset_mechanism=reset_mechanism
+            alpha=alpha,
+            beta=beta,
+            threshold=threshold,
+            reset_mechanism=reset_mechanism,
+            # inhibition=True,
         )
 
         self.syn_1, self.mem_1 = self.lif_1.reset_mem()
@@ -47,37 +54,58 @@ class SNN(nn.Module):
         x: torch.Tensor,
     ) -> torch.Tensor:
 
-        spikes = []
+        spikes = torch.zeros(x.size(1), self.num_outputs)
+        # batch size and num outputs
+        print(spikes.size())
 
         num_timesteps = x.size(0)
         for timestep in range(num_timesteps):
-            spk1, self.syn_1, self.mem_1 = self.lif_1(x[timestep], self.syn_1, self.mem_1)
+            spk1, self.syn_1, self.mem_1 = self.lif_1(
+                x[timestep], self.syn_1, self.mem_1
+            )
             foo = self.ws_1(spk1)
             spk2, self.syn_2, self.mem_2 = self.lif_2(foo, self.syn_2, self.mem_2)
             bar = self.ws_2(spk2)
             spk3, self.syn_3, self.mem_3 = self.lif_3(bar, self.syn_3, self.mem_3)
-            spikes.append(spk3)
-        
-        spikes = torch.stack(spikes)
-        return spikes
+            spikes += spk3
+
+        row_sums = spikes.sum(dim=1, keepdim=True)
+        safe_sums = torch.where(row_sums == 0, torch.ones_like(row_sums), row_sums)
+        probabilities = spikes / safe_sums
+
+        return probabilities
+
 
 def rate_encode(tensor):
     from snntorch import spikegen
+
     return spikegen.rate_conv(tensor)
 
+
+num_timesteps = 100
+batch_size = 16
+
+num_inputs = 10000
+num_hidden = 10000
+num_outputs = 5
+
 snn = SNN(
-    num_inputs=10,
-    num_hidden=100,
-    num_outputs=10,
+    num_inputs=num_inputs,
+    num_hidden=num_hidden,
+    num_outputs=num_outputs,
     alpha=0.9,
     beta=0.9,
 )
 
-test_input = torch.rand(100, 1, 10)
+test_input = torch.rand(num_timesteps, batch_size, num_inputs)
 
 spiked_input = rate_encode(test_input)
 
-spikes = snn(spiked_input)
+import time
 
-print(spikes.size())
-print(spikes.sum(dim=0))
+start = time.time()
+spikes = snn(spiked_input)
+end = time.time()
+
+print(spikes)
+print(f"Operation took: {end-start:.5f}s")
