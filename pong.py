@@ -157,7 +157,6 @@ class PongGame:
         pygame.quit()
 
 
-
 # ========================================================================================================================
 
 import torch
@@ -184,7 +183,7 @@ def convert_to_spikes(
 ):
     from snntorch import spikegen
 
-    return spikegen.rate_conv(data=tensor)
+    return spikegen.rate(data=tensor, num_steps=1)
 
 
 def render_image(tensor: torch.Tensor) -> None:
@@ -201,6 +200,18 @@ def render_image(tensor: torch.Tensor) -> None:
     plt.pause(0.001)  # let GUI update
 
 
+def get_screenshot():
+    surface = pygame.display.get_surface()
+    arr = pygame.surfarray.array3d(surface)
+    arr = np.transpose(arr, (2, 1, 0))  # → (3,H,W)
+    tensor = convert_to_spikes(scale_tensor(torch.from_numpy(arr).float() / 255.0))
+    return tensor
+
+
+import pong_model
+
+snn = pong_model.SNN().to("cuda")
+
 # Example usage:
 import time
 import numpy as np
@@ -211,15 +222,18 @@ try:
     while True:
         # model sets move_up/move_down each tick:
         # time.sleep(0.02)
-        game.tick(dt_ms=20, move_up=True)
-        surface = pygame.display.get_surface()
-        arr = pygame.surfarray.array3d(surface)
-        arr = np.transpose(arr, (2,1,0))      # → (3,H,W)
-        tensor = torch.from_numpy(arr).float() / 255.0
-        tensor = scale_tensor(tensor)
-        tensor = convert_to_spikes(tensor)
-        render_image(tensor)
-
+        image = get_screenshot()
+        image = image.to("cuda")
+        render_image(image.squeeze())
+        probabilities = snn(image)
+        probabilities = probabilities.squeeze()
+        if probabilities[0] == probabilities[1]:
+            move = None
+        elif probabilities[0] == 1:
+            move = True
+        else:
+            move = False
+        game.tick(dt_ms=20, move_up=move)
 
 
 except KeyboardInterrupt:
