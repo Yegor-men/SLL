@@ -2,6 +2,11 @@ import torch
 from torch import nn
 import snntorch as snn
 
+seed = 1
+
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
 
 def rate_encode(
     tensor: torch.Tensor,
@@ -10,7 +15,8 @@ def rate_encode(
 ):
     from snntorch import spikegen
 
-    return spikegen.rate(data=tensor * gain, num_steps=num_timesteps)
+    spikes = spikegen.rate(data=tensor, num_steps=num_timesteps, gain=gain)
+    return spikes
 
 
 class neuron_layer(nn.Module):
@@ -31,6 +37,9 @@ class neuron_layer(nn.Module):
         self.lif = snn.Synaptic(
             alpha=alpha,
             beta=beta,
+            # learn_alpha=True,
+            # learn_beta=True,
+            # learn_threshold=True,
         )
         self.reset_params()
 
@@ -103,7 +112,7 @@ transform = transforms.Compose(
         transforms.Resize((28, 28)),
         transforms.Grayscale(),
         transforms.ToTensor(),
-        transforms.Normalize((0,), (1,)),
+        transforms.Normalize((0.02,), (0.2,)),
     ]
 )
 
