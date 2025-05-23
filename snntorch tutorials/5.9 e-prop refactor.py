@@ -11,7 +11,7 @@ class ALIFLayer:
         self,
         num_in: int,
         num_out: int,
-        e_trace_decay: float = 0.99,
+        e_trace_decay: float = 0.999,
         learning_rate: float = 1e-3,
         device: str = "cuda",
     ):
@@ -67,7 +67,8 @@ class ALIFLayer:
         net_reward = reward - baseline
 
         # 1. weight update: Δw = η * (r - b) * ∑_t e_{ij}^t
-        self.w += self.lr * net_reward * self.e_trace * (1 - self.e_trace_decay)
+        self.w += self.lr * net_reward * self.e_trace
+        #  * (1 - self.e_trace_decay)
 
         # 2. update raw alpha
         # Δα_raw[j] = η (r-b) (∑_t e_{α_j}^t) * σ'(α_raw[j])
@@ -159,9 +160,9 @@ class ALIFLayer:
 class SNN:
     def __init__(
         self,
-        e_trace_decay: float = 0.99,
-        learning_rate: float = 1e-3,
-        gain: float = 0.5,
+        e_trace_decay: float = 0.999,
+        learning_rate: float = 1e-5,
+        gain: float = 0.05,
     ):
         self.gain = gain
 
@@ -264,7 +265,7 @@ num_epochs = 1
 correct_or_not = []
 cum_sums = []
 
-loss_fn = torch.nn.CrossEntropyLoss()
+# loss_fn = torch.nn.CrossEntropyLoss()
 
 for epoch in range(num_epochs):
     print(f"Epoch {(epoch+1):,}/{num_epochs:,} - {((epoch+1)/num_epochs)*100:.2f}%")
@@ -276,13 +277,13 @@ for epoch in range(num_epochs):
             out = snn.forward(image)
             summed += out
         distribution = (summed / summed.sum()).to("cpu")
-        base_reward = int(label == distribution.argmax()) * 2 - 1
-        loss = loss_fn(distribution.unsqueeze(0), label)
+        base_reward = int(label == distribution.argmax()) - 0.1
+        loss = 1 - distribution[label].item()
         effective_reward = base_reward * loss
         snn.update_parameters(reward=effective_reward)
         snn.reset_states()
 
-        correct_or_not.append((base_reward + 1) / 2)
+        correct_or_not.append(int(label == distribution.argmax()))
 
         if len(correct_or_not) % 100 == 0:
             cum_sum = sum(correct_or_not[-100:]) / 100
@@ -295,5 +296,5 @@ for epoch in range(num_epochs):
             plt.pause(0.1)
 
             print(
-                f"\t{index+1:,}/{len(train_dataloader):,} batches {((index+1)/len(train_dataloader))*100:.2f}%"
+                f"\t{index+1:,}/{len(train_dataloader):,} batches {((index+1)/len(train_dataloader))*100:.2f}% - {snn.layers[-1].threshold}"
             )
